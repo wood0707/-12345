@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { leads } from "@/db/schema";
+import { desc } from "drizzle-orm";
+
+export async function GET() {
+  const data = await db.select().from(leads).orderBy(desc(leads.createdAt));
+  return NextResponse.json(data);
+}
 
 export async function POST(req: NextRequest) {
   const { name, phone, email } = await req.json();
