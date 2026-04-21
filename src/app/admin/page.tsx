@@ -1,83 +1,166 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
-interface Lead {
+type Lead = {
   id: number;
   name: string;
   phone: string;
   email: string;
   createdAt: string;
-}
+};
 
-interface EditState {
+type Memo = {
   id: number;
-  name: string;
-  phone: string;
-  email: string;
+  leadId: number;
+  content: string;
+  createdAt: string;
+};
+
+function MemoPanel({ lead, password }: { lead: Lead; password: string }) {
+  const [memos, setMemos] = useState<Memo[] | null>(null);
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function loadMemos() {
+    const res = await fetch(`/api/leads/${lead.id}/memos?password=${encodeURIComponent(password)}`);
+    if (res.ok) setMemos(await res.json());
+  }
+
+  async function toggle() {
+    if (!open && memos === null) await loadMemos();
+    setOpen((v) => !v);
+  }
+
+  async function addMemo(e: React.FormEvent) {
+    e.preventDefault();
+    if (!text.trim()) return;
+    setLoading(true);
+    const res = await fetch(`/api/leads/${lead.id}/memos?password=${encodeURIComponent(password)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: text }),
+    });
+    if (res.ok) {
+      const memo = await res.json();
+      setMemos((prev) => [memo, ...(prev ?? [])]);
+      setText("");
+    }
+    setLoading(false);
+  }
+
+  async function deleteMemo(memoId: number) {
+    await fetch(`/api/leads/${lead.id}/memos?password=${encodeURIComponent(password)}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ memoId }),
+    });
+    setMemos((prev) => prev?.filter((m) => m.id !== memoId) ?? []);
+  }
+
+  function formatDate(dateStr: string) {
+    return new Date(dateStr).toLocaleString("ko-KR", {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  const memoCount = memos?.length ?? 0;
+
+  return (
+    <div>
+      <button
+        onClick={toggle}
+        className="flex items-center gap-1.5 text-xs text-[#4f46e5] font-medium hover:underline"
+      >
+        <span>{open ? "▲" : "▼"}</span>
+        <span>메모 {memos !== null ? `(${memoCount})` : ""}</span>
+      </button>
+
+      {open && (
+        <div className="mt-3 border border-[#e2e8f0] rounded-xl p-4 bg-[#fafbff]">
+          <form onSubmit={addMemo} className="flex gap-2 mb-3">
+            <input
+              type="text"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="메모 입력..."
+              className="flex-1 px-3 py-2 border border-[#e2e8f0] rounded-lg text-sm outline-none focus:border-[#4f46e5] focus:shadow-[0_0_0_2px_rgba(79,70,229,0.1)]"
+            />
+            <button
+              type="submit"
+              disabled={loading || !text.trim()}
+              className="px-4 py-2 bg-[#4f46e5] text-white text-sm font-medium rounded-lg hover:bg-[#4338ca] disabled:opacity-40 transition"
+            >
+              추가
+            </button>
+          </form>
+
+          {memos === null ? (
+            <p className="text-xs text-[#a0aec0]">불러오는 중...</p>
+          ) : memos.length === 0 ? (
+            <p className="text-xs text-[#a0aec0]">메모가 없습니다.</p>
+          ) : (
+            <ul className="space-y-2">
+              {memos.map((memo) => (
+                <li key={memo.id} className="flex items-start justify-between gap-2 text-sm">
+                  <div>
+                    <p className="text-[#2d3748] leading-snug">{memo.content}</p>
+                    <p className="text-xs text-[#a0aec0] mt-0.5">{formatDate(memo.createdAt)}</p>
+                  </div>
+                  <button
+                    onClick={() => deleteMemo(memo.id)}
+                    className="text-xs text-[#e53e3e] hover:underline shrink-0 mt-0.5"
+                  >
+                    삭제
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function AdminPage() {
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [editState, setEditState] = useState<EditState | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [password, setPassword] = useState("");
+  const [leads, setLeads] = useState<Lead[] | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  async function fetchLeads() {
+  async function handleLogin(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
     try {
-      const res = await fetch("/api/leads");
-      if (!res.ok) throw new Error("데이터를 불러오지 못했습니다.");
-      const data = await res.json();
-      setLeads(data);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "오류가 발생했습니다.");
+      const res = await fetch(`/api/leads?password=${encodeURIComponent(password)}`);
+      if (res.status === 401) {
+        setError("비밀번호가 올바르지 않습니다.");
+        setLeads(null);
+      } else if (!res.ok) {
+        setError("오류가 발생했습니다.");
+      } else {
+        setLeads(await res.json());
+      }
+    } catch {
+      setError("서버에 연결할 수 없습니다.");
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => {
-    fetchLeads();
-  }, []);
-
-  function startEdit(lead: Lead) {
-    setEditState({ id: lead.id, name: lead.name, phone: lead.phone, email: lead.email });
-  }
-
-  function cancelEdit() {
-    setEditState(null);
-  }
-
-  async function saveEdit() {
-    if (!editState) return;
-    setSaving(true);
+  async function handleRefresh() {
+    setLoading(true);
     try {
-      const res = await fetch(`/api/leads/${editState.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: editState.name, phone: editState.phone, email: editState.email }),
-      });
-      if (!res.ok) throw new Error("저장에 실패했습니다.");
-      setLeads((prev) =>
-        prev.map((l) => (l.id === editState.id ? { ...l, ...editState } : l))
-      );
-      setEditState(null);
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "오류가 발생했습니다.");
+      const res = await fetch(`/api/leads?password=${encodeURIComponent(password)}`);
+      if (res.ok) setLeads(await res.json());
     } finally {
-      setSaving(false);
-    }
-  }
-
-  async function deleteLead(id: number) {
-    if (!window.confirm("이 리드를 삭제하시겠습니까?")) return;
-    try {
-      const res = await fetch(`/api/leads/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("삭제에 실패했습니다.");
-      setLeads((prev) => prev.filter((l) => l.id !== id));
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "오류가 발생했습니다.");
+      setLoading(false);
     }
   }
 
@@ -91,144 +174,94 @@ export default function AdminPage() {
     });
   }
 
+  if (leads === null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#f0f4f8] p-6">
+        <div className="bg-white rounded-2xl shadow-[0_4px_24px_rgba(0,0,0,0.08)] p-10 w-full max-w-sm">
+          <h1 className="text-xl font-semibold text-[#1a202c] mb-6">관리자 로그인</h1>
+          <form onSubmit={handleLogin}>
+            <input
+              type="password"
+              placeholder="비밀번호"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-3.5 py-3 border-[1.5px] border-[#e2e8f0] rounded-lg text-base text-[#1a202c] placeholder-[#a0aec0] outline-none transition focus:border-[#4f46e5] focus:shadow-[0_0_0_3px_rgba(79,70,229,0.12)] mb-3"
+              autoFocus
+            />
+            {error && <p className="text-sm text-red-500 mb-3">{error}</p>}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3 bg-[#4f46e5] text-white text-base font-semibold rounded-lg cursor-pointer transition hover:bg-[#4338ca] disabled:opacity-50"
+            >
+              {loading ? "확인 중..." : "로그인"}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
+    <div className="min-h-screen bg-[#f0f4f8] p-6">
       <div className="max-w-5xl mx-auto">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold text-gray-800">리드 관리</h1>
-          <button
-            onClick={async () => {
-              await fetch("/api/admin/logout", { method: "POST" });
-              window.location.href = "/admin/login";
-            }}
-            className="px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-100"
-          >
-            로그아웃
-          </button>
+          <div>
+            <h1 className="text-2xl font-semibold text-[#1a202c]">리드 관리</h1>
+            <p className="text-sm text-[#718096] mt-1">총 {leads.length}건</p>
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={handleRefresh}
+              disabled={loading}
+              className="px-4 py-2 bg-white border border-[#e2e8f0] text-sm font-medium text-[#4a5568] rounded-lg hover:bg-[#f7fafc] transition disabled:opacity-50"
+            >
+              새로고침
+            </button>
+            <button
+              onClick={() => setLeads(null)}
+              className="px-4 py-2 bg-white border border-[#e2e8f0] text-sm font-medium text-[#4a5568] rounded-lg hover:bg-[#f7fafc] transition"
+            >
+              로그아웃
+            </button>
+          </div>
         </div>
 
-        {loading && (
-          <div className="text-center py-16 text-gray-500">불러오는 중...</div>
-        )}
-
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 mb-4">
-            {error}
-          </div>
-        )}
-
-        {!loading && !error && (
-          <>
-            <p className="text-sm text-gray-500 mb-4">총 {leads.length}건</p>
-            <div className="bg-white rounded-xl shadow overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-100 text-gray-600 uppercase text-xs">
-                  <tr>
-                    <th className="px-4 py-3 text-left w-10">#</th>
-                    <th className="px-4 py-3 text-left">이름</th>
-                    <th className="px-4 py-3 text-left">전화번호</th>
-                    <th className="px-4 py-3 text-left">이메일</th>
-                    <th className="px-4 py-3 text-left">등록일시</th>
-                    <th className="px-4 py-3 text-left w-32">작업</th>
+        <div className="bg-white rounded-2xl shadow-[0_4px_24px_rgba(0,0,0,0.08)] overflow-hidden">
+          {leads.length === 0 ? (
+            <div className="text-center py-16 text-[#a0aec0]">아직 문의 내역이 없습니다.</div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[#e2e8f0] bg-[#f7fafc]">
+                  <th className="text-left px-6 py-3.5 font-semibold text-[#4a5568]">번호</th>
+                  <th className="text-left px-6 py-3.5 font-semibold text-[#4a5568]">이름</th>
+                  <th className="text-left px-6 py-3.5 font-semibold text-[#4a5568]">전화번호</th>
+                  <th className="text-left px-6 py-3.5 font-semibold text-[#4a5568]">이메일</th>
+                  <th className="text-left px-6 py-3.5 font-semibold text-[#4a5568]">접수일시</th>
+                  <th className="text-left px-6 py-3.5 font-semibold text-[#4a5568]">메모</th>
+                </tr>
+              </thead>
+              <tbody>
+                {leads.map((lead, i) => (
+                  <tr
+                    key={lead.id}
+                    className={`border-b border-[#f0f4f8] align-top ${i % 2 === 0 ? "" : "bg-[#fafbfc]"}`}
+                  >
+                    <td className="px-6 py-4 text-[#a0aec0]">{lead.id}</td>
+                    <td className="px-6 py-4 font-medium text-[#1a202c]">{lead.name}</td>
+                    <td className="px-6 py-4 text-[#4a5568]">{lead.phone}</td>
+                    <td className="px-6 py-4 text-[#4a5568]">{lead.email}</td>
+                    <td className="px-6 py-4 text-[#718096] whitespace-nowrap">{formatDate(lead.createdAt)}</td>
+                    <td className="px-6 py-4 min-w-[280px]">
+                      <MemoPanel lead={lead} password={password} />
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {leads.length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-gray-400">
-                        등록된 리드가 없습니다.
-                      </td>
-                    </tr>
-                  )}
-                  {leads.map((lead) => {
-                    const isEditing = editState?.id === lead.id;
-                    return (
-                      <tr key={lead.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 text-gray-400">{lead.id}</td>
-
-                        <td className="px-4 py-3">
-                          {isEditing ? (
-                            <input
-                              className="border border-gray-300 rounded px-2 py-1 w-full focus:outline-none focus:ring-2 focus:ring-blue-400"
-                              value={editState.name}
-                              onChange={(e) => setEditState({ ...editState, name: e.target.value })}
-                            />
-                          ) : (
-                            lead.name
-                          )}
-                        </td>
-
-                        <td className="px-4 py-3">
-                          {isEditing ? (
-                            <input
-                              className="border border-gray-300 rounded px-2 py-1 w-full focus:outline-none focus:ring-2 focus:ring-blue-400"
-                              value={editState.phone}
-                              onChange={(e) => setEditState({ ...editState, phone: e.target.value })}
-                            />
-                          ) : (
-                            lead.phone
-                          )}
-                        </td>
-
-                        <td className="px-4 py-3">
-                          {isEditing ? (
-                            <input
-                              className="border border-gray-300 rounded px-2 py-1 w-full focus:outline-none focus:ring-2 focus:ring-blue-400"
-                              value={editState.email}
-                              onChange={(e) => setEditState({ ...editState, email: e.target.value })}
-                            />
-                          ) : (
-                            lead.email
-                          )}
-                        </td>
-
-                        <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
-                          {formatDate(lead.createdAt)}
-                        </td>
-
-                        <td className="px-4 py-3">
-                          {isEditing ? (
-                            <div className="flex gap-1">
-                              <button
-                                onClick={saveEdit}
-                                disabled={saving}
-                                className="px-2 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 disabled:opacity-50"
-                              >
-                                {saving ? "저장 중" : "저장"}
-                              </button>
-                              <button
-                                onClick={cancelEdit}
-                                disabled={saving}
-                                className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs hover:bg-gray-300 disabled:opacity-50"
-                              >
-                                취소
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex gap-1">
-                              <button
-                                onClick={() => startEdit(lead)}
-                                className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs hover:bg-gray-200"
-                              >
-                                수정
-                              </button>
-                              <button
-                                onClick={() => deleteLead(lead.id)}
-                                className="px-2 py-1 bg-red-50 text-red-600 rounded text-xs hover:bg-red-100"
-                              >
-                                삭제
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
       </div>
     </div>
   );

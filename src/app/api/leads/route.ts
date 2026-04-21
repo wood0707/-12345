@@ -3,9 +3,13 @@ import { db } from "@/db";
 import { leads } from "@/db/schema";
 import { desc } from "drizzle-orm";
 
-export async function GET() {
-  const data = await db.select().from(leads).orderBy(desc(leads.createdAt));
-  return NextResponse.json(data);
+export async function GET(req: NextRequest) {
+  const password = req.nextUrl.searchParams.get("password");
+  if (!process.env.ADMIN_PASSWORD || password !== process.env.ADMIN_PASSWORD) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const rows = await db.select().from(leads).orderBy(desc(leads.createdAt));
+  return NextResponse.json(rows);
 }
 
 export async function POST(req: NextRequest) {
